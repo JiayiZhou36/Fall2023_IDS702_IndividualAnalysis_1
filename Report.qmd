@@ -1,0 +1,744 @@
+---
+title: "Airbnb Price Predictor Model"
+author: "Jiayi Zhou"
+date: "10/1/2023"
+format:
+  pdf:
+    include-in-header:
+      text: |
+        \addtokomafont{disposition}{\rmfamily}
+editor: visual
+---
+
+## REPORT FOR AIRBNB EXECUTIVES
+
+### Introduction
+
+This project creates a model that predicts the prices of Airbnb listings in Asheville, NC. The original dataset is from Inside Airbnb, which initially comprised 3,239 observations and 79 variables. After a data cleaning and organization process, we proceeded to fit the model using a refined dataset containing 2,764 observations and 7 variables.
+
+```{r,include=FALSE}
+#load library
+library(tidyverse)
+library(geosphere)
+library(stringr)
+library(readr)
+library(corrplot)
+library(dplyr)
+library(car)
+library(caret)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(insight)
+library(tibble)
+```
+
+```{r,include=FALSE}
+#read in dataset
+airbnb <- read.csv('listings.csv')
+```
+
+```{r,include=FALSE}
+airbnb <- airbnb |> mutate(dishwasher = ifelse(grepl("Dishwasher", amenities), 1, 0))
+```
+
+```{r, include = FALSE}
+unique(airbnb$price)
+```
+
+```{r, include = FALSE}
+airbnb$price = as.numeric(gsub("[\\$,]", "", airbnb$price))
+```
+
+```{r, include = FALSE}
+unique(airbnb$price)
+```
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms_text)
+```
+
+```{r, include = FALSE}
+airbnb$bathrooms_text[airbnb$bathrooms_text == "Shared half-bath"] <- "0.5 bath"
+```
+
+```{r, include = FALSE}
+airbnb$bathrooms_text[airbnb$bathrooms_text == "Half-bath"] <- "0.5 bath"
+```
+
+```{r, include = FALSE}
+#assume no input is NA
+airbnb$bathrooms_text[airbnb$bathrooms_text == ""] <- NA
+```
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms_text)
+```
+
+```{r, include = FALSE}
+#assume shared bath the same as private bath
+airbnb$bathrooms <- as.numeric(word(airbnb$bathrooms_text,1))
+```
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms)
+```
+
+```{r, include = FALSE}
+#the distance to downtown
+airbnb$dist_to_dt <- apply(airbnb[,c("longitude","latitude")],1,function(x) distm(
+  c(-82.55481168521978,35.59701329976918),
+  x,fun=distHaversine))*0.00062137
+```
+
+```{r, include = FALSE}
+airbnb |> count(room_type)
+```
+
+```{r, include = FALSE}
+airbnb_subset <- data.frame(airbnb[, c("price","room_type","bedrooms","bathrooms","dist_to_dt","minimum_nights","dishwasher")])
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- na.omit(airbnb_subset)
+```
+
+### Methods
+
+Given that our primary objective is prediction, we employed a linear model that incorporates both regular variables including room type, number of bedrooms, number of bathrooms, and the presence of a dishwasher, as well as log-transformed variables including the logarithm of price, distance to downtown, and the minimum number of nights required for a booking. The log transformation ensure that the model aligns with all four statistical assumptions essential for a linear model. The choice of a linear model stems from its ease of use and interpretability, making it well-suited for predicting listing prices.
+
+```{r, include = FALSE}
+price <- lm(price~., data=airbnb_subset_na)
+summary(price)
+```
+
+```{r, include=FALSE}
+tab_model(price)
+```
+
+```{r, include = FALSE}
+airbnb_subset_na |> count(room_type)
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- airbnb_subset_na |> mutate(room_type_combine = case_when (room_type == "Entire home/apt" ~ "entire_place", room_type != "Entire home/apt" ~ "no_entire_place"))
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- subset(airbnb_subset_na, select = -c(room_type))
+```
+
+```{r, include = FALSE}
+airbnb_subset_na |> count(room_type_combine)
+```
+
+```{r, include = FALSE}
+price_0 <- lm(price~., data=airbnb_subset_na)
+summary(price_0)
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=bedrooms,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bedrooms", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=bathrooms,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bathroom", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=dist_to_dt,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Distance to Downtown", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=minimum_nights,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Minimum Number of Night Stay", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+price_1 <- lm(price~bedrooms+bathrooms+dist_to_dt*room_type_combine+ minimum_nights*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_1)
+```
+
+```{r, include = FALSE}
+vif(price_1, type='predictor')
+```
+
+```{r, include = FALSE}
+plot(price_1)
+```
+
+```{r, include = FALSE}
+plot_1 = plot(price_1,1)
+```
+
+```{r, include = FALSE}
+price_2 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ minimum_nights*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_2)
+```
+
+```{r, include = FALSE}
+vif(price_2,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_2)
+```
+
+```{r, include = FALSE}
+plot_2 <- plot(price_2,1)
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=bedrooms,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bedrooms", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=bathrooms,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bathroom", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=dist_to_dt,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Distance to Downtown", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=minimum_nights,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Minimum Number of Night Stay", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=log(minimum_nights),y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Log Minimum Number of Night Stay", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+min(airbnb_subset_na$minimum_nights)
+```
+
+```{r, include = FALSE}
+price_2_2 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_2_2)
+```
+
+```{r, include = FALSE}
+vif(price_2_2,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_2_2)
+```
+
+```{r, include = FALSE}
+airbnb_subset_na_influential_1 <- airbnb_subset_na %>% filter(!(row.names(airbnb_subset_na) %in% c(98,2607, 3113)))
+```
+
+```{r, include = FALSE}
+price_3 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1)
+summary(price_3)
+```
+
+```{r, include = FALSE}
+tab_model(price_3)
+```
+
+```{r, include = FALSE}
+vif(price_3,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_3)
+```
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_1 <- train(log(price)~bedrooms+bathrooms+log(dist_to_dt)*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_1)
+```
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_2 <- train(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_2)
+```
+
+```{r, include = FALSE}
+#without interaction term
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_3 <- train(log(price)~bedrooms+bathrooms+log(dist_to_dt)+room_type_combine+ log(minimum_nights)+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_3)
+```
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_4 <- train(log(price)~bedrooms+bathrooms+dist_to_dt+room_type_combine+ minimum_nights+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_4)
+```
+
+```{r, include = FALSE}
+price_4<- lm(log(price)~bedrooms+bathrooms+log(dist_to_dt)+room_type_combine+ log(minimum_nights)+dishwasher, data=airbnb_subset_na_influential_1)
+```
+
+```{r, include = FALSE}
+summary(price_4)
+```
+
+```{r, include=FALSE}
+tab_model(price_4)
+```
+
+```{r, include = FALSE}
+vif(price_4)
+```
+
+```{r, include = FALSE}
+vif_data <- tibble(Variable = c("bedrooms", "bathrooms", "dist to downtown", "room type", "minimum nights", "dishwasher"), VIF_Value = vif(price_4))
+vif_data
+```
+
+```{r, include = FALSE}
+par(mfrow=c(2,2),     # 2x2 grid
+cex=0.9,         # slightly reduce text and symbol size
+mar=c(4, 4, 2, 1) + 0.1)  # adjust margins
+plot(price_4)
+```
+
+### Results
+
+The model is $\log(\text{price}) = 4.83 + 0.21 \times \text{bedrooms} + 0.16 \times \text{bathrooms} - 0.17 \times \log(\text{distance to downtown}) - 0.33 \times \text{room type} - 0.1 \times \log(\text{minimum nights}) + 0.16 \times \text{dishwasher}$. The model achieved an R-squared value of 0.53 and a root mean square error (RMSE) of 0.40. R-squared measures how effectively the model fits our data, with a value of 1 indicating a perfect fit that explains all variability. RMSE, on the other hand, quantifies the degree to which predictions from the model deviate from actual values. A lower RMSE signifies that predictions closely align with reality, enhancing the accuracy of our predictions. Both R-squared and RMSE values range from 0 to 1. We selected the model with the highest R-squared and the lowest RMSE among all the models we explored. Based on our chosen model, we predict a listing with two bedrooms, one bathroom, situated 1.5 miles from downtown, requiring at least a one-night stay, and lacking a dishwasher can set its price at \$150.
+
+```{r, include = FALSE}
+example_data <- data.frame(bedrooms = c(2,3), bathrooms = c(1,2), dist_to_dt=c(1.5,2.5), minimum_nights=c(3,20), dishwasher=c(0,1), room_type_combine=c("entire_place", "no_entire_place"))
+```
+
+```{r, include = FALSE}
+predict_price_log<-predict(price_4, newdata=example_data)
+```
+
+```{r, include = FALSE}
+predict_price_exp <- exp(predict_price_log)
+predict_price_exp
+```
+
+### Conclusion
+
+The validity of this analysis relies on the accuracy of the underlying assumptions and the representativeness of the dataset. For future analyses, potential variables for inclusion could encompass the year the listing was constructed, customer ratings, pet-friendliness, and host responsiveness. To further validate the model's performance, it would be valuable to test it using a new, independent dataset. Furthermore, future endeavors should prioritize the acquisition of additional data related to property types beyond entire homes or apartments.
+
+{{< pagebreak >}}
+
+## REPORT FOR DATA SCIENCE TEAM
+
+### Introduction
+
+##### General Overview
+
+The dataset is sourced from Inside Airbnb, comprising 3,239 observations and 79 variables. In this project, we focus on seven key variables: the listing's price, room type, number of bedrooms, number of bathrooms, distance to downtown, minimum number of nights for the listing, and whether the place includes a dishwasher. Our objective is to construct a model that accurately predicts the prices of Airbnb listings in Asheville, North Carolina, with the remaining six variables serving as explanatory factors.
+
+```{r,include=FALSE}
+#load library
+library(tidyverse)
+library(geosphere)
+library(stringr)
+library(readr)
+library(corrplot)
+library(dplyr)
+library(car)
+library(caret)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(insight)
+library(tibble)
+```
+
+```{r,include=FALSE}
+#read in dataset
+airbnb <- read.csv('listings.csv')
+```
+
+##### Data Cleaning
+
+1.  Dishwasher Availability: We extract this information from the amenities variable, categorizing it as a binary variable where 0 signifies no dishwasher and 1 signifies the presence of a dishwasher in the listing.
+
+```{r,include=FALSE}
+airbnb <- airbnb |> mutate(dishwasher = ifelse(grepl("Dishwasher", amenities), 1, 0))
+```
+
+2.  Listing Price: We modify the price variable to eliminate symbols such as '\$' and ',' and then convert it into a numeric format.
+
+```{r, include = FALSE}
+unique(airbnb$price)
+```
+
+```{r, include = FALSE}
+airbnb$price_number = as.numeric(gsub("[\\$,]", "", airbnb$price))
+```
+
+```{r, include = FALSE}
+unique(airbnb$price_number)
+```
+
+3.  Number of Bathrooms: We address special cases such as 'Shared half-bath,' 'Half-bath,' and empty values by treating shared and non-shared baths as equivalent, assigning both 'Shared half-bath' and 'Half-bath' a value of 0.5, and empty values as missing data. All other cases are converted into numeric values.
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms_text)
+```
+
+```{r, include = FALSE}
+airbnb$bathrooms_text[airbnb$bathrooms_text == "Shared half-bath"] <- "0.5 bath"
+```
+
+```{r, include = FALSE}
+airbnb$bathrooms_text[airbnb$bathrooms_text == "Half-bath"] <- "0.5 bath"
+```
+
+```{r, include = FALSE}
+#assume no input is NA
+airbnb$bathrooms_text[airbnb$bathrooms_text == ""] <- NA
+```
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms_text)
+```
+
+```{r, include = FALSE}
+#assume shared bath the same as private bath
+airbnb$bathrooms <- as.numeric(word(airbnb$bathrooms_text,1))
+```
+
+```{r, include = FALSE}
+unique(airbnb$bathrooms)
+```
+
+4.  Distance to Downtown: This is computed using a function provided in the code, resulting in a continuous numeric variable. We assume that the observations are all from the same city, sharing a common downtown location.
+
+```{r, include = FALSE}
+#the distance to downtown
+airbnb$dist_to_dt <- apply(airbnb[,c("longitude","latitude")],1,function(x) distm(
+  c(-82.55481168521978,35.59701329976918),
+  x,fun=distHaversine))*0.00062137
+```
+
+5.  Room type, number of bedrooms, and minimum number of nights for the listing are categorized as categorical, numeric, and numeric variables, respectively, and are left unaltered.
+
+    We create a new data frame, containing only these seven variables, with missing values omitted.
+
+```{r, include = FALSE}
+airbnb |> count(room_type)
+```
+
+```{r, include = FALSE}
+airbnb_subset <- data.frame(airbnb[, c("price_number","room_type","bedrooms","bathrooms","dist_to_dt","minimum_nights","dishwasher")])
+```
+
+```{r, include = FALSE}
+colnames(airbnb_subset)[colnames(airbnb_subset) == "price_number"] <- "price"
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- na.omit(airbnb_subset)
+```
+
+### Methods
+
+Initially, we build a model with no modifications. However, as the table below shown, we observe high standard errors for the 'room type' categories of hotel room and private room, which have only 15 and 65 observations, respectively, compared to 2,687 observations for entire homes or apartments. To address this, we group the 'room type' variable into two categories: one for entire homes or apartments and another for non-entire places. This adjustment results in a slight decrease in the standard error for non-entire places.
+
+```{r, include = FALSE}
+price <- lm(price~., data=airbnb_subset_na)
+summary(price)
+```
+
+```{r, echo=FALSE}
+tab_model(price)
+```
+
+```{r, include = FALSE}
+airbnb_subset_na |> count(room_type)
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- airbnb_subset_na |> mutate(room_type_combine = case_when (room_type == "Entire home/apt" ~ "yes", room_type != "Entire home/apt" ~ "no"))
+```
+
+```{r, include = FALSE}
+airbnb_subset_na <- subset(airbnb_subset_na, select = -c(room_type))
+```
+
+```{r, include = FALSE}
+airbnb_subset_na |> count(room_type_combine)
+```
+
+```{r, include = FALSE}
+price_0 <- lm(price~., data=airbnb_subset_na)
+summary(price_0)
+```
+
+Subsequently, we create figures where the x-axis represents the explanatory variables, and the y-axis represents the response variable, aiming to identify any potential interaction terms that should be added. Notably, room types exhibit distinct slopes for variables such as distance to downtown and minimum number of nights. However, due to the limited number of observations for hotel rooms and private rooms, we plan to test and address this with cross-validation later. We fit a model with interaction terms between 'distance to downtown' and 'room type,' as well as between 'minimum number of nights' and 'room type.'
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=bedrooms,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bedrooms", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=bathrooms,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bathroom", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=dist_to_dt,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Distance to Downtown", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+#room type categorical
+ggplot(airbnb_subset_na, aes(x=minimum_nights,y=price, col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Minimum Number of Night Stay", y="Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+price_1 <- lm(price~bedrooms+bathrooms+dist_to_dt*room_type_combine+ minimum_nights*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_1)
+```
+
+```{r, include = FALSE}
+vif(price_1, type='predictor')
+```
+
+```{r, include = FALSE}
+plot(price_1)
+```
+
+Based on the residuals vs. fitted plot, we observe violations of assumptions regarding equal variance and linearity, as the red line follows a curved pattern, and the distribution of points widens as fitted values increase. To address this, we log-transform the response variable 'y,' resulting in improved constant variance in the residual vs. fitted plot.
+
+```{r, include = FALSE}
+plot_1 = plot(price_1,1)
+```
+
+```{r, include = FALSE}
+price_2 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ minimum_nights*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_2)
+```
+
+```{r, include = FALSE}
+vif(price_2,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_2)
+```
+
+```{r, include = FALSE}
+plot_2 <- plot(price_2,1)
+```
+
+Next, we generate figures with the x-axis representing the explanatory variables and the y-axis representing the log of the response variable to assess whether any log transformations of the explanatory variables are necessary. We identify that transforming 'minimum nights' is a viable option. Subsequently, we fit a new model and plot the residuals vs. fitted values, revealing improved linearity as the red line flattens and approaches zero.
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=bedrooms,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bedrooms", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=bathrooms,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Number of Bathroom", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=dist_to_dt,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Distance to Downtown", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=minimum_nights,y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Minimum Number of Night Stay", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+ggplot(airbnb_subset_na, aes(x=log(minimum_nights),y=log(price), col=room_type_combine)) + geom_point() + geom_smooth(method="lm",se=F)+labs(x="Log Minimum Number of Night Stay", y="Log Price",col="Room Type")
+```
+
+```{r, include = FALSE}
+min(airbnb_subset_na$minimum_nights)
+```
+
+```{r, include = FALSE}
+price_2_2 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na)
+summary(price_2_2)
+```
+
+```{r, include = FALSE}
+vif(price_2_2,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_2_2)
+```
+
+Then, we proceed to exclude certain observations. The Residuals vs. Leverage plot highlights that observations 98, 2607, and 3113 exhibit high Cook's distance, signifying their influence. Consequently, we remove these observations. The summary table indicates a change in p-values from insignificant to significant for the interaction term 'log minimum nights' and 'room type' with the entire place, leading us to retain the dataset after removing observations 98, 2607, and 3113.
+
+```{r, include = FALSE}
+airbnb_subset_na_influential_1 <- airbnb_subset_na %>% filter(!(row.names(airbnb_subset_na) %in% c(98,2607, 3113)))
+```
+
+```{r, include = FALSE}
+price_3 <- lm(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1)
+summary(price_3)
+```
+
+```{r, include = FALSE}
+tab_model(price_3)
+```
+
+```{r, include = FALSE}
+vif(price_3,type = 'predictor')
+```
+
+```{r, include = FALSE}
+plot(price_3)
+```
+In the context of this prediction task, our objective is to evaluate the model's performance on a test set. Since we lack access to a new dataset, we opt for cross-validation. Given our uncertainty about the inclusion of interaction terms and log transformations, especially due to the limited observations for hotel rooms and private rooms, we employ cross-validation to build models both with and without these modifications.  
+Based on the evaluation metrics of root mean square error (RMSE) and R-squared provided by all the models, we have selected the following model as our choice: $\log(\text{price}) = 4.83 + 0.21 \times \text{bedrooms} + 0.16 \times \text{bathrooms} - 0.17 \times \log(\text{distance to downtown}) - 0.33 \times \text{room type} - 0.1 \times \log(\text{minimum nights}) + 0.16 \times \text{dishwasher}$. This model exhibits an RMSE of 0.40 and an R-squared value of 0.53. We selected it because it possesses the lowest RMSE and the highest R-squared, and it does not incorporate interaction terms, making it easier to interpret.  
+The final model summary is presented in the graph below. As all VIF scores are below 5, no adjustments are deemed necessary due to multicollinearity. Furthermore, the assumptions of linearity, equal variance, and normality of errors are satisfied, with no influential data points detected.
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_1 <- train(log(price)~bedrooms+bathrooms+log(dist_to_dt)*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_1)
+```
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_2 <- train(log(price)~bedrooms+bathrooms+dist_to_dt*room_type_combine+ log(minimum_nights)*room_type_combine+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_2)
+```
+
+```{r, include = FALSE}
+#without interaction term
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_3 <- train(log(price)~bedrooms+bathrooms+log(dist_to_dt)+room_type_combine+ log(minimum_nights)+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_3)
+```
+
+```{r, include = FALSE}
+#note that cross validation involves a random sampling component, so we should use a seed for reproducibility
+set.seed(921) 
+
+train_control <- trainControl(method = "cv",
+                                          number = 10)
+
+mod_full_4 <- train(log(price)~bedrooms+bathrooms+dist_to_dt+room_type_combine+ minimum_nights+dishwasher, data=airbnb_subset_na_influential_1,
+                     method = "lm",
+                     trControl = train_control)
+
+#get model metrics
+print(mod_full_4)
+```
+
+```{r, include = FALSE}
+price_4<- lm(log(price)~bedrooms+bathrooms+log(dist_to_dt)+room_type_combine+ log(minimum_nights)+dishwasher, data=airbnb_subset_na_influential_1)
+```
+
+```{r, include = FALSE}
+summary(price_4)
+```
+
+```{r, echo=FALSE}
+tab_model(price_4)
+```
+
+```{r, include = FALSE}
+vif(price_4)
+```
+
+```{r, echo = FALSE}
+vif_data <- tibble(Variable = c("bedrooms", "bathrooms", "distance to downtown", "room type", "minimum nights", "dishwasher"), VIF_Value = vif(price_4))
+vif_data
+```
+
+```{r, echo = FALSE}
+par(mfrow=c(2,2),     # 2x2 grid
+cex=0.9,         # slightly reduce text and symbol size
+mar=c(4, 4, 2, 1) + 0.1)  # adjust margins
+plot(price_4)
+```
+
+### Conclusion
+
+In this project, we have created a model to assist in setting prices for Airbnb listings in Asheville, NC. The model utilizes log-transformed variables, including price, distance to downtown, and minimum number of nights for the listing, achieving a root mean square error of 0.40 and an R-squared value of 0.53.
+
+The model incorporates six explanatory variables: price of the listing, room type, number of bedrooms, number of bathrooms, distance to downtown, minimum number of nights for the listing, and the presence of a dishwasher, all of which are used to predict the listing price.
+
+The validity of this analysis hinges upon the accuracy of the assumptions made and the representativeness of the dataset. For future analyses, potential variables that could be considered for inclusion are the year the listing was built, customer ratings, pet-friendliness, and host responsiveness. Furthermore, variables have been adjusted based on a few assumptions, and further refinement may be achieved through additional inquiries and modifications to these variables. Addressing missing values with more detailed information can enhance the model's accuracy.
+
+To further validate the model, testing it with a new, independent test dataset would be valuable. Additionally, future efforts should prioritize gathering additional data related to property types other than entire homes or apartments.
+
+```{r, include = FALSE}
+example_data <- data.frame(bedrooms = c(2,3), bathrooms = c(1,2), dist_to_dt=c(1.5,2.5), minimum_nights=c(1,20), dishwasher=c(0,1), room_type_combine=c("yes", "no"))
+```
+
+```{r, include = FALSE}
+predict_price_log<-predict(price_4, newdata=example_data)
+```
+
+```{r, include = FALSE}
+predict_price_exp <- exp(predict_price_log)
+predict_price_exp
+```

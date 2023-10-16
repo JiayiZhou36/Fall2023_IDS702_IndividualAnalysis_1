@@ -1,2 +1,6 @@
 # Fall2023_IDS702_IndividualAnalysis_1
-This is for class IDS 702 individual analysis
+This is for class IDS 702 individual analysis 1. In this project, we have created a model to assist in setting prices for Airbnb listings in Asheville, NC. The model utilizes log-transformed variables, including price, distance to downtown, and minimum number of nights for the listing, achieving a root mean square error of 0.40 and an R-squared value of 0.53.
+
+The model incorporates six explanatory variables: price of the listing, room type, number of bedrooms, number of bathrooms, distance to downtown, minimum number of nights for the listing, and the presence of a dishwasher, all of which are used to predict the listing price.
+
+The validity of this analysis hinges upon the accuracy of the assumptions made and the representativeness of the dataset. For future analyses, potential variables that could be considered for inclusion are the year the listing was built, customer ratings, pet-friendliness, and host responsiveness. Furthermore, variables have been adjusted based on a few assumptions, and further refinement may be achieved through additional inquiries and modifications to these variables. Addressing missing values with more detailed information can enhance the model's accuracy.
